@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-public class ObjectInteractor : MonoBehaviour
+public class CandleInteractor : MonoBehaviour
 {
     [SerializeField] private Camera mainCamera;
     [SerializeField] private Text interactionText;
@@ -10,11 +10,17 @@ public class ObjectInteractor : MonoBehaviour
 
     public float interactDistance = 2f;
     public float moveSpeed = 5f;
+    public float windDuration = 5f;
+    private float originalLightRange;
+    private float windTimer = 0f;
 
     private GameObject heldObject;
+    private ParticleSystem candleParticleSystem;
+    private Light candleLight;
     private bool isMovingObject = false;
-
-    private Outline currentOutline;
+    private bool isCovered = false;
+    private bool isExtinguished = false;
+    private bool isInWind = false;
 
     private void Start()
     {
@@ -22,7 +28,7 @@ public class ObjectInteractor : MonoBehaviour
         {
             mainCamera = Camera.main;
         }
-        
+
         if (interactionText == null)
         {
             Debug.LogError("interactionText не назначен в инспекторе");
@@ -39,6 +45,30 @@ public class ObjectInteractor : MonoBehaviour
     private void Update()
     {
         DetectInteractable();
+
+        if (Input.GetKeyDown(KeyCode.E) && heldObject != null)
+        {
+            CoverCandle(!isCovered);
+            Debug.Log(isCovered ? "Свеча закрыта" : "Свеча открыта");
+        }
+
+        if (!isCovered && heldObject != null && !isExtinguished)
+        {
+            if (isInWind)
+            {
+                windTimer += Time.deltaTime;
+                Debug.Log("Свеча в зоне действия ветра. Таймер: " + windTimer);
+                if (windTimer >= windDuration)
+                {
+                    ExtinguishCandle("Свеча потухла из-за ветра");
+                }
+            }
+            else
+            {
+                windTimer = 0f;
+                Debug.Log("Таймер сброшен.");
+            }
+        }
     }
 
     private void DetectInteractable()
@@ -53,44 +83,20 @@ public class ObjectInteractor : MonoBehaviour
                 if (hit.transform.tag == "Interactable")
                 {
                     interactionText.text = "Используйте ЛКМ чтобы взять";
-                    Outline outline = hit.transform.GetComponent<Outline>();
-
-                    if (outline != null)
-                    {
-                        if (currentOutline != null && currentOutline != outline)
-                        {
-                            currentOutline.enabled = false;
-                        }
-                        outline.enabled = true;
-                        currentOutline = outline;
-                    }
+                    Debug.Log("Объект найден: " + hit.transform.name);
 
                     if (Input.GetMouseButtonDown(0))
                     {
-                        if (outline != null)
-                        {
-                            outline.enabled = false;
-                        }
                         PickUpObject(hit.transform.gameObject);
                     }
                 }
                 else
                 {
-                    if (currentOutline != null)
-                    {
-                        currentOutline.enabled = false;
-                        currentOutline = null;
-                    }
                     interactionText.text = "";
                 }
             }
             else
             {
-                if (currentOutline != null)
-                {
-                    currentOutline.enabled = false;
-                    currentOutline = null;
-                }
                 interactionText.text = "";
             }
         }
@@ -121,18 +127,84 @@ public class ObjectInteractor : MonoBehaviour
     {
         heldObject = obj;
         heldObject.GetComponent<Rigidbody>().isKinematic = true;
-        heldObject.GetComponent<Collider>().enabled = false; 
+        heldObject.GetComponent<Collider>().enabled = false;
+        heldObject.transform.rotation = Quaternion.identity;
+        candleParticleSystem = heldObject.GetComponentInChildren<ParticleSystem>();
+        candleLight = heldObject.GetComponentInChildren<Light>();
+
+        if (candleLight != null)
+        {
+            originalLightRange = candleLight.range;
+        }
+
         isMovingObject = true;
+        isExtinguished = false;
         Reticle.SetActive(false);
+        Debug.Log("Объект поднят: " + heldObject.name);
     }
 
     private void ReleaseObject()
     {
         heldObject.GetComponent<Rigidbody>().isKinematic = false;
-        heldObject.GetComponent<Collider>().enabled = true; 
+        heldObject.GetComponent<Collider>().enabled = true;
         heldObject.transform.parent = null;
         heldObject = null;
+        candleParticleSystem = null;
+        candleLight = null;
         isMovingObject = false;
+        isExtinguished = false;
         Reticle.SetActive(true);
+        Debug.Log("Объект отпущен");
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.CompareTag("Water") && !isCovered)
+        {
+            ExtinguishCandle("Свеча потухла из-за воды");
+        }
+
+        if (other.CompareTag("Wind") && !isCovered)
+        {
+            isInWind = true;
+            Debug.Log("Свеча в зоне действия ветра.");
+        }
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if (other.CompareTag("Wind"))
+        {
+            isInWind = false;
+            windTimer = 0f;
+            Debug.Log("Таймер сброшен.");
+        }
+    }
+
+    private void ExtinguishCandle(string reason)
+    {
+        if (candleParticleSystem != null)
+        {
+            candleParticleSystem.gameObject.SetActive(false);
+        }
+        if (candleLight != null)
+        {
+            candleLight.enabled = false;
+        }
+        isExtinguished = true;
+        Debug.Log(reason);
+    }
+
+    public void CoverCandle(bool cover)
+    {
+        isCovered = cover;
+        if (isCovered)
+        {
+            candleLight.range = originalLightRange / 2;
+        }
+        else
+        {
+            candleLight.range = originalLightRange;
+        }
     }
 }
